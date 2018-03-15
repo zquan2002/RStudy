@@ -1,0 +1,413 @@
+---
+title: "Class2.R语法汇总"
+author: "Phoebe Chang"
+date: "2016年12月28日"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# R语言基础语法
+
+  R是面向**对象**的编程语言，一切皆为对象<br>
+  向量c()、列表list()、矩阵matrix()、数组array()、因子factor()、数据框data.frame()、其它
+  
+## R的基本对象类型
+
+1.向量（c()），元素类型相同，强制转换为同一类型
+```{r}
+v<-c(1,2,3,4,5)
+return(v)
+#既有字符串又有数据强制转换成字符串类型
+v<-c(.045,.098,-9.7,"xyz")
+return(v)
+#可用:生成连续向量
+1:10
+#可运用函数创建向量
+seq(from=5,to=30,by=5)
+```
+
+2.列表（list()），是从**1**开始而不是从0开始的,**列表里面的类型可以是不相同的**
+```{r}
+x<-list(1:5)
+#引用列表中的元素
+x[1]
+#可以对列表中的元素命名
+ y<-list(original = "beijing",destination = c(1:3),price =13.5)
+ return(y)
+#用$调用列表中的不同元素
+ y$price
+```
+
+3.矩阵（matrix()）：**二维**向量
+```{r}
+#创建4行3列矩阵，默认按列填充，按行填充byrow=TRUE
+matrix(data = 1:12,nrow = 4,ncol = 3)
+#按行填充
+matrix(data = 1:12,nrow = 4,ncol = 3,byrow = TRUE)
+```
+
+4.数组（array()）：**两个以上维度**的向量
+```{r}
+#dim表示数据的各个维度的值2个3行4列向量
+array(data = 1:24,dim = c(3,4,2))
+```
+
+5.因子（factor()）：输出结果因因子水平没有加引号，且都明确显示出来<br>
+一般在分类变量中应用较多,因子不但有数值还有水平，且之间不可进行四则运算
+```{r}
+fruits <- factor(c("apple","banana","orange"))
+levels(fruits)
+```
+
+6.有序因子:有等级关系的水平用有序因子，order = TRUE
+```{r}
+survey <- factor(c("非常不同意","不同意","中立","同意","强烈同意"),levels = c("非常不同意","不同意","中立","同意","强烈同意"),order = TRUE)
+return(survey)
+```
+因子型在计算机内部**存储为整型数据**，因此可以转换成整型数组
+```{r}
+#查看数据类型
+class(fruits)
+#转换数据类型
+a <- unclass(fruits)
+return(a)
+# 重新转换为因子
+class(a) <-"factor"
+return(a)
+```
+
+7.数据框（data.frame()）:二维数据，类似与excel的表，与矩阵不同在于每列的数据类型可以不同，**每一行长度必须相同，每一列的数据类型必须相同**
+```{r}
+data.frame(a = 1:5,b = 6:10,c = c("a","b","c",4,"N"))
+```
+
+8.其它类型
+
+```{r}
+#日期和时间
+Sys.Date()
+#日期格式化
+as.Date("12/27/2016","%m/%d/%Y")
+#布尔型
+1==2
+1!=2
+```
+
+## R语言中的操作
+
+1.赋值操作“-”，“<-”，“<<-”
+```{r}
+#=和<-均为局部赋值操作，效果相同
+a = 1
+b <- 2
+f <- function(){
+  a <- 3
+  b = 4
+  #w<<-强制转换为全局变量
+  w <<- 5
+  return(a)
+}
+#a赋值只在函数内有用，依然是1
+a
+f()
+#w在函数外依然有用
+w
+```
+
+2.运算操作“+，-，*，/，^，%%"，“!，&,|”
+```{r}
+#加法运算
+a+b
+#乘法运算
+a*b
+#除法运算
+a/b
+#指数运算
+a^b
+#取余运算
+a%%b
+#逻辑或(除0以外都是TRUE)
+a|b
+#逻辑与
+a&b
+#逻辑反
+!(a == b)
+```
+
+3.控制结构<br>
+  **条件语句**<br>
+  if(condition)true.expression else false.expression
+```{r}
+#条件语句不是向量运算，如果是向量，只返回第一个
+x<-10
+y<-c(1:10,100)
+if(x<y) TRUE else FALSE
+#如果要实现向量化操作
+ifelse(x < y,TRUE,FALSE)
+```
+
+  **循环语句**<br>
+  1)repeat expression , break 跳出循环
+```{r}
+i<-10
+repeat {if(i > 25) break
+        else{
+              print(i)
+              i <- i+5
+        }
+  }
+```
+
+  2)while(condition) expression,在条件为真时，重复执行表达式
+```{r}
+i<-10
+while(i <= 25){
+      print(i)
+      i <- i+5
+}
+```
+
+  3)for(var in list) expression，遍历list中每个项目，执行表达式
+```{r}
+#for循环中的var变量是变化的
+for (i in seq(from=10,to = 25,by = 5)){
+      print(i)
+}
+```
+
+## R函数
+  定义：function(arguments){body};函数**参数“…”实现参数数据可变**函数；参数顺序与定义一致
+
+```{r}
+test <- function(x,...){
+        arg <- list(...)
+        for(a in arg) x<-x+a
+        return(x)
+}
+test(1,2,3)
+```
+
+# R的基础package介绍
+  tidyr包：数据清理变换，变成整洁数据<br>
+  dplyr包：数据筛选、排序、变换<br>
+  stringr包：字符串操作<br>
+  resape2包：数据长宽转换
+
+##tidyr包
+
+1.gather：宽数据变长数据，与reshape2包中的melt()函数相似；<br>
+  适用于列非变量而是数值的情况；在数据框基础上操作<br>
+gather(dataframe,key = 新列名，value = gather对象新名称，...合并的列名)
+```{r}
+library(tidyr)
+messy <- data.frame(
+  name = c("wilbur","petunia","Gregory"),
+  a = c(67, 80, 64),
+  b = c(56, 90, 50)
+)
+messy
+#将数据框中的a,b列合并成新的列drug，将a、b列的值放在heartrate列，实现宽数据变长数据
+gather(messy,key = "drug",value = heartrate,a:b)
+```
+
+2.separate:分离列变量为多列。<br>
+  适用于多个变量储存在一列中的情况；<br>
+separate(dataframe,col = 需要分离的列, into = c(分离后的新列名向量))<br>
+unit():将多列合并为一列；
+```{r}
+set.seed(10)
+messy <- data.frame(
+  id = 1:4,
+  trt = sample(rep(c("control","treatment"),each = 2)),
+  work.T1 = runif(4),
+  home.T1 = runif(4),
+  work.T2 = runif(4),
+  home.T2 = runif(4)
+)
+messy
+#运用gather把work.T1,home.T1转换为key-value,"-id,-trt"表示保持不变的变量,%>%为连接符,表示接着上一步的结果操作
+tidier <- messy %>%
+  gather(key, time, -id, -trt)
+tidier %>%
+  head(8)
+#用字符“.”分离key变量
+tidy <- tidier %>%
+  separate(col = key, into = c("location","time"),sep = "\\.")
+tidy %>%
+  head(8)
+```
+
+3.spread：变长数据为宽数据（与gather相反）<br>
+  与reshap2包中的dcast()函数作用一致；<br>
+  spread(dataframe,key,value,fill = NA, convert = FALSE, drop = TRUE)
+```{r}
+messy <- data.frame(
+  name = c("wilbur","petunia","Gregory"),
+  a = c(67, 80, 64),
+  b = c(56, 90, 50)
+)
+messy <- gather(messy,key = "drug",value = heartrate,a:b)
+#用spread返回为宽数据
+spread(messy,key = drug,value = heartrate)
+```
+
+##dplyr包
+
+```{r}
+#加载数据包
+library(plyr)
+library(dplyr)
+#加载棒球比赛数据集包
+library(Lahman)
+#加载飞机航班数据集包
+library(hflights)
+#将过长过大的数据集转换为显示更友好的tbl_df类型
+hflights_df <- tbl_df(hflights)
+```
+
+1.filter():用于数据筛选，类似于subset()(挑选子集)<br>
+filter(data,conditions)
+```{r}
+attach(hflights)
+filter(hflights_df,Month == 1, DayofMonth ==1)
+#与subset()相比除了代码简洁之外，还支持对同一对象的任意个条件组合，可用逻辑运算符连接
+filter(hflights_df,Month == 1 | Month == 2)
+```
+
+2.arrange():用于数据排序,desc(列名)进行倒序
+arrange(data,column name ...)
+```{r}
+#根据DayofMonth, Month, Year三列排序
+arrange(hflights_df, DayofMonth, Month, Year)
+#根据ArrDelay倒序
+arrange(hflights_df, desc(ArrDelay))
+#R自带函数实现(代码复杂混乱)：
+#hflights[order(hflights$DayofMonth, hflights$Month, hflights$Year),]
+#hflights[order(desc(hflights$ArrDelay)),]
+```
+
+3.select():选择子集<br>
+select(data,column name:column)<br>
+用 : 来连接列名,用 - 来排除列名<br>
+```{r}
+select(hflights_df,Year:DayOfWeek)
+#用-来排除列(除条件列之外的)
+select(hflights_df,-(Year:DayOfWeek))
+```
+
+4.mutate()：对已有列进行数据运算并添加为新列<br>
+mutate(data, new column...)<br>
+与transform()函数相似，优势在于可以在统一语句中对新增加的列进行操作.
+```{r}
+mutate(hflights_df, 
+       gain = ArrDelay - DepDelay, 
+       speed = gain / AirTime * 60)
+```
+
+5.summariser():汇总函数<br>
+summariser(data,function...)
+```{r}
+#取均值
+summarise(hflights_df, 
+          delay = mean(DepDelay, na.rm = TRUE))
+```
+
+6.group_by()：分组<br>
+group_by(data, column...)<br>
+分组后是对每个组做操作
+```{r}
+#按飞机编号（TailNum）进行分组
+planes <- group_by(hflights_df, TailNum)
+#计算航班次数、平均飞行距离、平均延时
+delay <- summarize(planes, 
+                   count =  NROW(TailNum),
+                   dist = mean(Distance, na.rm = TRUE), 
+                   delay = mean(ArrDelay, na.rm = TRUE))
+#对计算后的数据进行筛选，选出飞行次数大于20，平均飞行距离小于2000的航班
+delay <- filter(delay, count > 20, dist < 2000)
+#用ggplot2绘图
+library(ggplot2)
+#x轴为距离，y轴为延时，查看距离和延时的关系
+ggplot(delay, aes(dist, delay)) + 
+  geom_point(aes(size = count), alpha = 1/5) + 
+  geom_smooth() + 
+  scale_size_area()
+#发现飞机延时不延时跟飞行距离没太大相关性
+```
+
+7.链接符 %>%<br>
+依次将上一步操作的结果用作下一次操作的数据，可以进一步简化代码
+```{r}
+Batting %>%
+  group_by(playerID) %>%
+  summarise(total = sum(G)) %>%
+  arrange(desc(total)) %>%
+  head(5)
+```
+
+##stringr包
+```{r}
+library(stringr)
+fruit <- c("apple","banana","pear","pinapple")
+#将向量中的字符串连接sep拼接向量，collapse多字符串连接
+res <- str_c(1:4,fruit,sep=' ',collapse=' ')
+str_c('I want to buy ',res,collapse=' ')
+# 计算字符串长度 
+str_length(c("i","like","programming R",123,res))
+# 按位置取子串 
+str_sub(fruit,1,3)
+# 子字符串重新赋值 
+capital <-toupper(str_sub(fruit,1,1)) 
+str_sub(fruit,rep(1,4),rep(1,4))<- capital
+fruit
+# 重复字符串，数组里面表示各重复几次
+str_dup(fruit,c(1,2,3,4)) 
+# 加空白 
+str_pad(fruit,10,"both") 
+# 去除空白 
+str_trim(fruit)
+# 根据正则表达式检验是否匹配
+# 哪些是以a结尾的
+fruit[str_detect(fruit,"a$")]
+#哪些包含aeiou的
+fruit[str_detect(fruit,"[aeiou]")]
+# 找出匹配的字符串位置 
+str_locate(fruit,"a")    
+# 提取匹配的部分
+#取小写字母
+str_extract(fruit,"[a-z]+")
+str_match(fruit,"[a-z]+")    
+# 替换匹配的部分(aeiou用-替换)
+str_replace(fruit,"[aeiou]","-")    
+# 分割(用空格分割) 
+str_split(res," ")
+```
+
+##reshap2包
+```{r}
+library(reshape2)
+```
+
+1.melt()：把宽数据变为长数据<br>
+  与tidyr包中的gather()函数功能一致；<br>
+melt(data, id.vars, measure.vars, variable.name="variable", ... , na.rm=FALSE, value.name="value")
+```{r}
+messy <- data.frame(
+  name = c("Wilbur", "Petunia", "Gregory"),
+  a = c(67, 80, 64),
+  b = c(56, 90, 50)
+)
+#数据，id.var要保留的列名，measure.vars要处理的列名，variable.name处理后新的列名，value.name处理后数据列名
+messy_melt <- melt(messy,id.vars = c("name"),measure.vars = c("a","b"),variable.name = "drug",value.name = "heartrate")
+messy_melt
+```
+
+2.dcast():把长数据变为宽数据<br>
+  与tidyr包中的spread()函数功能一致；<br>
+dcast(data, formula, ..., value.var = guess_value(data))
+```{r}
+dcast(messy_melt,name ~ drug)
+```

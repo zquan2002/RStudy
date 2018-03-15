@@ -1,0 +1,898 @@
+---
+title: "Class3.用R语言进行数据清洗"
+author: "Phoebe Chang"
+date: "2017年1月27日"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1.缺失数据处理
+
+## 1-1.数据处理的简要流程：
+
+
+## 1-2. 缺失数据类型：<br>
+**MCAR：完全随机缺失**，数据的缺失是自然产生的，没有人为干预的缺失。是随机的，这是数据缺失的理想状况。<br>
+**MNAR：非随机缺失**，数据的缺失是因为人为干预过的，各种主观/客观原因造成的，例如：问卷调查中因为主观原因对某些问题避而不答。需要去理解并检查数据的收集过程为什么会丢失数据<br>
+通常在数据处理中，不了解业务情况的情况下都当成MCAR去处理<br>
+数据缺失在5%内是可接受的，缺失数据太大，例如达到20%可能要考虑舍弃或扩大数据量。
+
+## 1-2.mice包查看缺失数据
+md.pattern()函数快速查询数据缺失值情况。<br>
+
+    以airquality包中保存的空气质量数据集为例。airquality数据是纽约1973年五月到九月的空气质量测试值。Ozone、Solar.R、Wind、Temp分别代表臭氧、太阳能、风速和温度。Month和Day是数据的时间年/月。
+    现在需要通过Ozone、Solar.R、Wind及时间预测Temp(预测变量)水平。并对数据集做填充。
+```{r}
+#install.packages("airquality")
+data1 <- airquality
+#将1-5行的Month用NA填充，人为制造缺失
+data1[1:5,5] <- NA
+summary(data1)
+```
+
+创建pMiss函数来检查下哪些特征（列）和样本（行）的数据缺失的百分比。可以看到Ozone列的数据点缺失大约24.18%。因此，我们需要考虑是否从分析中剔除它或者是对它做更多的收集。其他变量都低于5%的阈值，我们可以保留它们。
+```{r}
+pMiss <- function(x) {sum(is.na(x))/length(x)*100}
+apply(data1,2,pMiss)
+```
+
+使用md.pattern()函数快速查询数据缺失值分布情况
+```{r, message=FALSE, warning=TRUE}
+library(Rcpp)
+library(mice)
+md.pattern(data1)
+```
+
+    结果中列标表示变量名，1表示不缺失，0表示缺失，行标表示这行情况的数据的个数（第一行表示107个数据都没有缺失，第二行表示35个数据仅缺失了Ozone数据…）最后一列表示每个变量缺失的数据数量
+    从输出结果可以看出，107个样本是完全完整的，35个样本缺失了Ozone值，5个样本缺失了Solar.R，4个样本缺失了Month。Ozone共缺失37个。
+
+## 1-3.VIM包缺失值可视化
+aggr()函数计算并绘图可视化显示每个变量缺失值数目<br>
+
+    VIM包是缺失值填补及可视化的专用包，aggr()函数是计算并绘图每个变量缺失值数目的函数。直方图展示了不同变量缺失值的构成(占总数量的比率)，与上面pMiss函数的结果一致。右边的矩阵图表示了缺失值的分布和各占的比重（最右直方图）与md.pattern()函数结果一致，可以看出完全不缺失的数据约占70%。
+```{r, message=FALSE, warning=TRUE}
+library(colorspace)
+library(grid)
+library(data.table)
+library(VIM)
+aggr_plot <- aggr(data1, col = c('navyblue', 'red'), numbers=TRUE, 
+                  sortVars=TRUE, labels=names(data), cex.axis=.7, gap=3,
+                  ylab=c("Histogram of missing data", "Pattern"))
+```
+
+用marginplot()函数作图查看对特定两个变量（Ozone和Sorlar.R）一个变量缺失与否对另外一个变量的影响
+```{r}
+marginplot(data1[,c(1,2)])
+```
+
+    左边的红色箱线图展示的是在Ozone值缺失的情况下Solar.R的分布，而蓝色箱线图展示的Ozone值不缺失的情况下Solar.R的分布。同样的，底部红色箱线图和蓝色箱线图分别展示的是Solar.R在缺失和不缺失的情况下Ozone值得分布。如果对数据缺失假定为MCAR类型正确的话，那么我们预期的红色箱线图和蓝色箱线图应该是非常相似的。
+
+## 1-4.缺失数据填补方法
+1.**运用均值、中位数、众数填补；**<br>
+使用均值、中位数、众数来代替缺失值应该是运用最广泛的方法之一。可以使用Hmisc包中的impute()实现。打*数据表示填补后数据。
+```{r, message=FALSE}
+library(Hmisc)
+#均值填补（一般情况下正态分布用均值填补比较好）
+impute(data1$Ozone,mean)
+#中位数填补（）
+impute(data1$Ozone,median)
+#具体值(45)填补
+impute(data1$Ozone,45)
+#手动均值填补
+data1$Temp[is.na(data1$Ozone)] <- mean(data1$Temp,na.rm = TRUE)
+#众数填补
+mode2 <- function(x){as.numeric(names(table(x)))[which.max(table(x))]}
+impute(data1$Ozone,mode2)
+```
+
+2.**K最近邻算法（KNN）填补**；
+K最近邻，就是k个最近的邻居的意思，说的是每个样本都可以用它最接近的k个邻居来代表。注意的是，在填补过程中，不能包含应变量即预测变量(Temp)。
+```{r, message=FALSE}
+library(DMwR)
+knnOutput <- knnImputation(airquality[,-4])
+anyNA(knnOutput)
+```
+
+3.**rpart包填补分类变量;**<br>
+DMwR::knnImputation一大缺点是无法填补分类变量。rpart可代替kNN预测缺失值。当处理分类变量时，设置method=class，对于数值变量，设置method=anova。同样在填补过程中，不能包含应变量即预测变量。
+```{r, message=FALSE}
+#将Month列作为分类因子
+data1$Month <- factor(data1$Month)
+library(rpart)
+#Month为分类变量
+class_month <- rpart(Month ~ .-Temp,data=data1[!is.na(data1$Month),], method="class", na.action=na.omit)
+month_pred <- predict(class_month, data1[is.na(data1$Month), ])
+#获取真实的缺失month值
+actuals <- airquality$Month[is.na(data1$Month)]
+#获取估算出的最可能的month填补值
+predicteds <- as.numeric(colnames(month_pred)[apply(month_pred, 1, which.max)])
+#计算错分率
+mean(actuals != predicteds)  
+#Ozone为数值变量
+anove_Ozone <- rpart(Ozone ~ .-Temp,data=data1[!is.na(data1$Ozone),], method="anova", na.action=na.omit)
+Ozone_pred <- predict(anove_Ozone, data1[is.na(data1$Ozone), ])
+```
+
+4.**运用mice包多重填补**<br>
+运用mice()函数对多维度缺失数据进行填补。
+
+    m=表示生成几组无缺失数据集；maxit表示每一个标量迭代次数（默认为5）；meth表示使用的插补方法，可为空，pmm表示任意匹配，其它还有norm表示贝叶斯线性回归、norm.nob表示忽略错误的线性回归模型……更多方法可详见帮助的detail部分。
+```{r}
+tempData <- mice(data1, m=4 ,maxit=5,meth='pmm',seed=500)
+#查看填补的Ozone数据
+head(tempData$imp$Ozone)
+#查看每个变量所用的插补方法
+tempData$meth
+#假设经过缺失及验证，比较后，获取最好的一组填补值（第3组）结果
+complete(tempData,action=3)
+```
+
+    mice()函数从一个包含缺失数据的数据框开始，然后返回一个包含多个（默认为5个）完整数据集的对象。每个完整数据集都是通过对原始数据框中的缺失数据进行插补而生成的。 由于插补有随机的成分，因此每个完整数据集都略有不同。多重填补往往伴随着缺失值评价，用评价模型（例如with()函数）评估完成后挑取最好的一组输出。
+
+## 1-5.缺失填补评价
+缺失数据填补完成后进行缺失填补评价<br>
+1.**DMwR（Data Mining with）包regr.eval()函数评价填补结果**
+
+    regr.eval()函数可以计算许多回归函数统计评价。最后结果mae为“mean absolute error”，mse为“mean squared error”，rmse为“ root mean squared error”。mape为“sum(|(t_i - p_i) / t_i|)/N”，可用来评价填补的准确性,详情可在Help中查看。在本例中mape为0.45，误差还是比较高的。
+```{r, message=FALSE}
+library(DMwR)
+#获取Ozone为空的数据的温度Temp值
+actuals <- airquality$Temp[is.na(airquality$Ozone)]
+#获取缺失个（37个）Ozone的均值
+predicteds <- rep(mean(data1$Ozone, na.rm=T), length(actuals))
+#评价中值填补的结果
+regr.eval(actuals, predicteds)
+#knnOutput <- knnImputation(airquality[,-4])
+predicteds <- knnOutput[is.na(airquality$Ozone), "Ozone"]
+#评价KNN填补的结果
+regr.eval(actuals, predicteds)
+```
+
+2.**缺失值填补的可视化**
+
+    利用一些有用的图对初始数据和插补后的数据分布做对比。我们希望看到的是洋红点(用mice()填补的4组数据)呈现出的形状（插补值）跟蓝色点（观测值）呈现出的形状是匹配的。从图中可以看 到，插补的值的确是“近似于实际值”。
+    同时我们可以根据概率密度曲线，查看洋红线（4个插补数据集的概率密度曲线），蓝色是观测值数据的概率密度曲线。
+```{r}
+library(lattice)
+xyplot(tempData,Ozone ~ Wind+Temp+Solar.R,pch=18,cex=1)
+#密度曲线
+densityplot(tempData)
+```
+
+再次根据我们之前的假定，我们希望这些分布是相似的。另一个有用的可视化是由stripplot()函数得到的包含个别点的变量分布图。
+```{r}
+stripplot(tempData, pch = 20, cex = 1.2)
+```
+  
+3.**插补数据的合并**
+
+    假设我们下一步的分析是对数据拟合一个线性模型。你或许会问应该选择哪个插补数据集。mice包可以轻易的对每个数据集分别拟合一个模型，再把结果合并到一起。
+    with()函数可依次对每个完整数据集应用统计模型（如线性模型或广义线性模型）,pool()函数将这些单独的分析结果合并为一组结果。最终模型的标准误和p值都将准确地反映出由于缺失值和多重插补而产生的不确定性。
+    注意的是这里除了lm()模型给出的结果外还包含其它列：fim指的是各个变量缺失信息的比例，lambda指的是每个变量对缺失数据的贡献大小。仅从Ozone变量来看的话，是统计显著的。
+```{r}
+#用Ozone、Solar.R、Wind三个变量的完全线性模型拟合
+modelFit1 <- with(tempData,lm(Temp~ Ozone+Solar.R+Wind))
+summary(pool(modelFit1))
+```
+  
+4.**辩证看待缺失值填补**<br>
+缺失值填补只是为了做模型模拟，不一定所有缺失值都需要填补。
+
+# 2.异常值的辨识处理
+
+    在数据分析领域，偏离常规的行为常称为异常点或离群值，其标准定义是“一个观测值与其他观测值偏离太多而引起猜疑，认为它产生于不同的机制”（Hawkins1980）。异常点监控的前提：指标并无明显趋势，既不持续上涨，也不下降，同时不会经常大幅波动，即数据服从正态分布。<br>
+首先我么可以利用箱式图的异常点输出（boxplot.stats()$out）找异常点值。
+```{r}
+outlierKD <- function(dt, var) {
+     var_name <- eval(substitute(var),eval(dt))
+     tot <- sum(!is.na(var_name))
+     na1 <- sum(is.na(var_name))
+     m1 <- mean(var_name, na.rm = T)
+     par(mfrow=c(2, 2), oma=c(0,0,3,0))
+     boxplot(var_name, main="With outliers")
+     hist(var_name, main="With outliers", xlab=NA, ylab=NA)
+     #获取异常值
+     outlier <- boxplot.stats(var_name)$out
+     mo <- mean(outlier)
+     #去掉异常值后绘图
+     var_name <- ifelse(var_name %in% outlier, NA, var_name)
+     boxplot(var_name, main="Without outliers")
+     hist(var_name, main="Without outliers", xlab=NA, ylab=NA)
+     title("Outlier Check", outer=TRUE)
+     na2 <- sum(is.na(var_name))
+     cat("Outliers identified:", na2 - na1, "\n")
+     cat("Propotion (%) of outliers:", round((na2 - na1) / tot*100, 1), "\n")
+     cat("Mean of the outliers:", round(mo, 2), "\n")
+     m2 <- mean(var_name, na.rm = T)
+     cat("Mean without removing outliers:", round(m1, 2), "\n")
+     cat("Mean if we remove outliers:", round(m2, 2), "\n")
+     #response <- readline(prompt="Do you want to remove outliers and to replace with NA? [yes/no]: ")
+     #为了输出好看，默认去除异常点
+     response <- "y"
+     if(response == "y" | response == "yes"){
+          dt[as.character(substitute(var))] <- invisible(var_name)
+          assign(as.character(as.list(match.call())$dt), dt, envir = .GlobalEnv)
+          cat("Outliers successfully removed", "\n")
+          return(invisible(dt))
+     } else{
+          cat("Nothing changed", "\n")
+          return(invisible(var_name))
+     }
+}
+```
+执行函数（仍然以上面的臭氧数据为例），可以看出原始数据有两个异常值，去除之后整体分布正常很多：
+```{r}
+outlierKD(data1,data1$Ozone)
+```
+
+    下面我们会就DMwR包的sales数据集为例看看几种常用的异常数据处理方法，sales数据集为某公司销售员所报告的交易数据，共包括数据401146行，变量包括ID(销售员)，Prod(产品编号)，Quant(销售数量)和Val(报告的总价值),Insp变量为3个可能值的因子变量(ok表示交易有效，fraud表示交易为欺诈，unkn为交易未经过公司审查)。我们的目的是根据公司的交易数据，寻找交易中可能出现的错误和欺诈企图（识别异常点），并对欺诈概率进行排名，将允许公司把有限的检验资源分配给提示有“可疑欺诈”的交易数据中。
+```{r}
+library(DMwR)
+#数据查看
+data(sales)
+head(sales)
+summary(sales)
+str(sales)
+#各种交易类型占比
+table(sales$Insp)/nrow(sales)*100
+```
+
+    正如预期的那样，欺诈行为比例相对较低，只占全部交易记录的0.317%。
+1.**箱式图**<br>
+
+    对于正态分布N~(u,σ^2)指标,分别把u-3σ和u+3σ称为3倍标准差下的下限（LCL）和上限（UCL），异常点为超过上下控限的数据。对于转换率型指标，根据中心极限定理，当二项分布的样本足够大时，分布趋向均值p，标准差为sqr(p(1-p)/n)的正态分布。
+    为寻找欺诈交易，不可避免的要对每个产品交易价格进行分析，让我们看看最贵产品和最便宜产品的单价有无异常点（标准价格用中位数表示）。
+```{r}
+# 计算产品单价
+sales$Uprice <- sales$Val/sales$Quant
+# 获取每种产品单价中位数
+upp <- aggregate(sales$Uprice,list(sales$Prod),median,na.rm= T)
+# 获取单价中位数最高的和最低的5种产品
+topP <- sapply(c(T,F), function(o)
+        upp[order(upp[,2],decreasing = o)[1:5],1])
+colnames(topP)<- c("Expensive","Cheap")
+topP
+# 获取中位数最高和最低产品的所有单价
+tops <- sales[sales$Prod %in% topP[1,],c("Prod","Uprice")]
+#按产品分类
+tops$Prod <- factor(tops$Prod)
+#绘制箱线图
+boxplot(tops$Uprice ~ tops$Prod,ylab = "Uprice",log = "y")
+```
+
+由箱图可绘制最贵商品p3689和最便宜商品p560的异常点，现在让我们生成每个商品的异常点个数。列出前10的异常点个数的商品列,boxplot.stats(x)$out储存所有监测出的离群点。
+```{r}
+# 查看每种产品的异常点个数
+out <- tapply(sales$Uprice,list(Prod = sales$Prod),
+              function(x) length(boxplot.stats(x)$out))
+# 输出异常点最多的10种产品
+out[order(out,decreasing = T)[1:10]]
+```
+
+2.**质量监控图**<br>
+
+    qcc包是专业绘制质量监控图的算法包，其核心函数是qcc(data,type,nsigmas = 3,plot = TRUE),及根据质量控制的6sigma原理找出
+```{r, message=FALSE}
+library(qcc)
+sol <- qcc(sales[sales$Prod =="p580","Uprice"],type = "xbar.one")
+```
+
+我们选取p580产品的质量控制图，图中CL为单价的均值，UCL和LCL为正负3倍标准差上下限。可以看出有1个红色“报警”点为离群点，黄色为超出2倍标准差“可疑点”。
+    
+3.**局部离群点因子（LOF），用于非缺失计量资料**<br>
+
+    LOF是一种识别基于密度的局部离群点算法，但只用于数值型数据。使用局部离群点因子，将一个点的局部密度与其他领域进行比较，如果其局部密度远小于领域密度（LOF>1）,则该点相对于其领域位于一个密度更稀疏的区域，判断为离群点。使用lofactor()函数可以实现。注意必须是非缺失计量资料。
+```{r}
+library(DMwR)
+#删除缺失
+sales2 <- sales[-which(is.na(sales$Quant) | is.na(sales$Val)),]
+test <- sales2[1:1000,c(3,4)]
+#用lofactor()函数计算离群因子，k是用于算法计算的邻近因子的数量
+outlier <- lofactor(test,k = 5)
+plot(density(outlier))
+#提取前5个离群值
+outliers <- order(outlier,decreasing = T)[1:5]
+#绘制离群图
+pch <- rep(".",nrow(test))
+#前5个离群值用红色+表示，其余用黑色.表示
+pch[outlier]<- "+"
+col <- rep("black",nrow(test))
+col[outlier]<- "red"
+plot(log(test$Quant),log(test$Val),pch= pch, col = col,cex = 1.2)
+```
+
+4.**聚类方法识别异常值**<br>
+计算每个对象与簇中心的距离，将距离最大的对象作为离群点。
+```{r}
+kmeans_result <- kmeans(test,centers = 3)
+centers <- kmeans_result$centers
+##计算簇中心距离
+distance <- sqrt(rowSums((test - centers)^2))
+outliers <- order(distance,decreasing = TRUE)[1:5]
+print(outliers)
+print(test[outliers,])
+##绘图
+plot(test[,c(1,2)],col = kmeans_result$cluster,pch = "o",cex = 0.3)
+#绘制簇中心
+points(kmeans_result$centers[,1:2],col = 1:3,pch = 8,cex = 2)
+points(test[outliers,1:2],pch = "+",cex = 1.5,col = 4)
+```
+
+    将数据进行划分，那些没有被划分到任何簇的数据点即为离群点。聚类方法有DBSCAN基于密度的聚类（如果两个对象之间是密度可达的，则这两个对象被划分到同一组）；K-mean聚类算法，将数据划分为k组，每个数据点都划分到与之其最小距离的分组,计算每个对象与簇中心点距离，并将距离最大的对象作为离群点。
+
+# 3.不平衡数据处理
+## 3-1.什么是不平衡问题：
+  1.对于一个分类不平衡的问题属于有监督机器学习的问题，主要指因变量（y）具有不平衡的**构成比例**问题<br>
+  2.在不同分类上，数据具有不相等的数据分布<br>
+
+## 3-2.需要处理不平衡问题出现的原因：<br>
+1.由于因变量非同分布，机器学习(以下简称ML)需要调整准确性；<br>
+2.由于多数类的存在，导致现存的分类偏向多数类；<br>
+3.ML算法以准确性为驱动（如最小化总误差），这将导致少数类对误差的贡献率小；
+4.ML算法假设不同分类数据的分类错误的代价相同。
+
+## 3-3.不平衡问题的处理方法：
+
+    1) 下采样；即减少多数类观测值使数据达到平衡。适用于数据集巨大，减少训练样本可提高运算时间和空间问题。下采样方法具体又可分为随机下采样和基于先验信息的下采样（EasyEnsemble & BalanceCascade）。下采样主要缺点是会使训练样本损失多数类的重要信息。
+    2) 过采样；即重复少数观测值使数据达到平衡。过采样具体方法同下采样。该方法优点是没有信息损失，缺点是易导致过拟合，且一致性（外推性）不足，受异常值影响大。
+    3) 人工数据合成；属于过采样的一种，通过生成手动数据使少数类达到平衡。使用最广泛方法是synthetic minority oversampling technique(SMOTE),人工数据生成基于少数类样本特征空间（而非数据空间）的相似性，运用booststrapping和k-nearest，在一些位置相近的少数类样本中插入新样本达到平衡样本目的。新的少数样本Pj=x(原始少数样本)+rand(0,1) *(yj-x),yj为第j个x的最近邻样本。可以用DMwR包或ROSE包实现。
+    4) 代价敏感学习（Cost Sensitive Learning(CSL)）一般的学习算法通过最小化分类损失使分类错误率最小化,而代价敏感学习则以最小化分类代价为目标,需构造代价敏感损失。
+
+## 3-4.衡量模型准确性指标
+
+* Accuracy: (TP + TN)/(TP+TN+FP+FN)
+
+* Error Rate = 1 - Accuracy = (FP+FN)/(TP+TN+FP+FN)
+
+* Precision = TP / (TP + FP)
+
+* Recall = TP / (TP + FN)
+
+* F measure = ((1 + β)2 × Recall × Precision) / ( β2 × Recall + Precision ),β 为衡量recall和precision重要性参数，一般为1.
+
+* ROC曲线，曲线下面积越大，准确度越高。
+
+## 3-5.不平衡数据ROSE包实现
+
+```{r, message=FALSE}
+library(ROSE)
+data(hacide)
+table(hacide.train$cls)
+prop.table(table(hacide.train$cls))
+```
+
+数据为不平衡数据集，仅仅有2%的因变量cls为阳性，98%为阴性。对于这种严重不平衡数据，我们先用决策树看看这种不平衡对模型准确性的影响。
+```{r, message=FALSE}
+library(rpart)
+tree <- rpart(cls ~ .,data = hacide.train)
+pred.tree <- predict(tree,newdata = hacide.test)
+```
+
+ROSE包中accurary.meas()函数可以计算precision、recall、F值等模型准确性指标。
+```{r}
+accuracy.meas(hacide.test$cls,pred.tree[,2])
+```
+
+结果可以看出以0.5为截断点，模型精确度为100%，即没有假阳性；非常低的recall=0.2表明模型具有非常高的假阴性值；F=0.167也说明模型预测准确性很低。
+```{r}
+roc.curve(hacide.test$cls,pred.tree[,2],plotit = TRUE)
+```
+
+最终ROC曲线下面积AUC=0.6也说明模型在截断点为0.5的条件下具有较差的得分。让我们运用采样技术对不平衡数据进行处理，以提高模型准确性。
+    
+## 3-5-1.不平衡数据处理方法
+```{r}
+data_balanced_over <- ovun.sample(cls ~ ., data = hacide.train,method = "over",N = 1960)$data
+table(data_balanced_over$cls)
+```
+
+运行“过采样”技术，通过重抽样增加较少分组（阳性组）的数量，使数据达到平衡。同样的代码，可以实现“下采样”和同时过采样和下采样。运用ROSE()函数实现SMOTE方法。
+```{r}
+data_balanced_under <- ovun.sample(cls ~ .,data = hacide.train,method = "under",N = 40,seed = 1)$data
+table(data_balanced_under$cls)
+
+data_balanced_both <- ovun.sample(cls ~ ., data = hacide.train,method = "both", p = 0.5,N = 1000,seed = 1)$data
+table(data_balanced_both$cls)
+
+data.rose <- ROSE(cls ~.,data = hacide.train,seed = 1)$data
+table(data.rose$cls)
+```
+
+### 3-5-2.对不同抽样技术进行比较
+
+分别对4种不同抽样数据集拟合决策树函数，通过绘制ROC曲线比较抽样技术处理不平衡数据方法的好坏。
+```{r}
+#build decision tree models
+tree.rose <- rpart(cls ~ ., data = data.rose)
+tree.over <- rpart(cls ~ ., data = data_balanced_over)
+tree.under <- rpart(cls ~ ., data = data_balanced_under)
+tree.both <- rpart(cls ~ ., data = data_balanced_both)
+
+#make predictions on unseen data
+pred.tree.rose <- predict(tree.rose, newdata = hacide.test)
+pred.tree.over <- predict(tree.over, newdata = hacide.test)
+pred.tree.under <- predict(tree.under, newdata = hacide.test)
+pred.tree.both <- predict(tree.both, newdata = hacide.test)
+#AUC ROSE
+roc.curve(hacide.test$cls, pred.tree.rose[,2])
+##Area under the curve (AUC): 0.989
+
+#AUC Oversampling
+roc.curve(hacide.test$cls, pred.tree.over[,2],add.roc = TRUE,col = "red")
+##Area under the curve (AUC): 0.798
+
+#AUC Undersampling
+roc.curve(hacide.test$cls, pred.tree.under[,2],add.roc = TRUE,col = "blue")
+##Area under the curve (AUC): 0.867
+
+#AUC Both
+roc.curve(hacide.test$cls, pred.tree.both[,2],add.roc = TRUE,type = "o")
+##Area under the curve (AUC): 0.798
+```
+
+由模型比较可知，ROSE()函数运用SMOTE方法（基于随机森林和boosting）得到的“平衡数据”，模型准确性最高(AUC= 0.989)。ROSE()函数也可以指定检验模型准确性的方法，如holdout和bagging。extr.pred参数用于提取属于阳性类的概率。
+```{r}
+ROSE.holdout <- ROSE.eval(cls ~.,data = hacide.train,learner = rpart,method.assess = "holdout",extr.pred = function(obj) obj[,2],seed = 1)
+ROSE.holdout
+```
+
+    但是在截断点为0.5条件下，模型F值仍然较低。我们尝试调整不同截断点，使模型准确性最好。由结果可以看出，截断点设置在0.868时，模型准确率最高（precision: 1.000，recall: 0.600，F: 0.375）。
+```{r}
+c <- roc.curve(hacide.test$cls, pred.tree.rose[,2])
+accuracy <- function(x){
+        accuracy.meas(hacide.test$cls, pred.tree.rose[,2],threshold = x)
+}
+
+a <- list()
+for(i in c$thresholds[2:5])  {
+        a=accuracy(i)
+        print(a)
+}
+
+```
+
+# 4.特征提取与特征工程
+
+
+## 4-1.**特征提取是干什么的？**：有哪些特征是有作用的？这些起作用的特征在模型中作用有多大？<br>
+
+特征工程其实是一个偏工程的术语，在数据库领域可能叫做属性选择，而在统计学领域叫变量选择，其实是一个意思：即最大限度地从原始数据中提取有用信息以供算法和模型使用，通过寻求最优特征子集等方法使模型预测性能最高。当然，网络上对特征工程的总结已经非常成熟了(详见jasonfreak的知乎问答：使用sklearn做单机特征工程<https://www.zhihu.com/question/29316149>。
+    
+## 4-2.特征选择一般步骤：<br>
+1.子集产生:按照一定搜索策略产生候选特征子集；<br>
+2.子集评估：通过某个评价函数评估子集的优劣；<br>
+3.停止条件：决定特征选择算法什么时候停止；<br>
+4.子集验证：验证最终所选子集的有效性。
+
+## 4-3.**特征处理的方法汇总**<br>
+
+
+a.单个特征的处理：<br>
+标准化；区间放缩法；归一化；对定量特征二值化；对定性特征哑编码；缺失值填补；数据变换<br>
+
+b.多个变量的特征选择<br>
+
+<de>特征选择法  |    特点   |    缺点    |    用到的方法      
+------|-------------------------------------|-------------------|----------------
+  Filter法<br>(过滤法)  | 按照变量内部特征或者相关性对各个特征进行评分，设定阈值或者待选择阈值的个数特征。与特定的学习算法无关，因此具有较好的通用性，作为特征的筛选器非常合适。 |由于算法的评价标准独立于特定的学习算法，索选得特征子集在分类准确率方面通常低于Wrapper法| 方差选择法<br>相关系数法<br>计算卡方值<br>互信息
+Wrapper法<br>(封装法)  |封装式特征选择是利用学习算法的性能来评价特征子集的优劣。因此，对于一个待评价的特征子集，Wrapper方法需要训练一个分类器（决策树、神经网络、贝叶斯分类器、近邻法、支持向量机……），根据分类器的性能对该特征子集进行评价。|Wrapper方法缺点主要是特征通用性不强，当改变学习算法时，需要针对该学习算法重新进行特征选择|递归消除法
+Embedded法<br>(集成法)|在集成法特征选择中，特征选择算法本身作为组成部分嵌入到学习算法里。最典型的即决策树算法。包括基于惩罚项的特征选择法和基于树模型的特征选择法。|      | 基于惩罚项的特征选择法<br>基于树模型的特征选择法
+降维|降维方法除了基于L1惩罚项的模型以外，另外还有主成分分析法(PCA)和线性判别分析(LDA)，线性判别分析本身也是一个分类模型。PCA和LSDA有很多的相似点，其本质是要将原始的样本映射到维度更低的空间（例如用一维x’变量描述二维(x,y)变量）但是PCA和LDA的映射目标不一样：PCA是为了让映射后的样本具有**最大的发散性**；而LDA是为了让映射后的样本有**最好的分类性能**。所以所PCA是一种无监督的降维度方法，而LDA是一种有监督的降维度方法。| |主成分分析(PCA)<br>线性判别分析(LDA)
+<de>
+
+## 4-4.特征选择的python与R实现比较
+
+### 4-4-1.导入数据
+
+    我们以经典的鸢尾花数据iris为例，分别根据已有的特征选择的框架图，结合网络上给出的python代码总结，添加了运用R实现特征选择的方法，来对比两种语言的差异。
+
+python:   
+```{python, eval=FALSE, include=TRUE}
+from sklearn.datasets import load_iris
+
+#导入数据集
+iris = load_iris()
+#特征矩阵
+iris.data
+#目标向量
+iris.target
+```
+
+R:
+```{r}
+data("iris")
+#特征矩阵
+iris.data <- iris[,-length(iris)]
+#目标向量
+iris.targer <- iris[,length(iris)]
+```
+
+
+### 4-4-2.数据预处理
+
+1.**标准化**（要求数据符合正态性）
+
+python:   
+```{python, eval=FALSE, include=TRUE}
+from sklearn.preprocessing import StandardScaler
+StandardScaler().fit_transform(iris.data)
+```
+R:
+```{r, message=FALSE}
+scale(iris.data,center = TRUE,scale = TRUE)
+#或者运用BBmisc包中的normalize函数
+library(BBmisc)
+normalize(iris.data)
+```
+
+2.**区间放缩法**
+
+python:   
+```{python, eval=FALSE, include=TRUE}
+from sklearn.preprocessing import MinMaxScaler
+MinMaxScaler().fit_transform(iris.data)
+```
+R:
+```{r}
+#依据公式构建区间放缩函数
+maxmin <- function(col){
+        maxmin <- (col-min(col))/(max(col)-min(col))
+        return(maxmin)
+}
+maxmin(iris.data)
+```
+
+3.**归一化** 
+
+    此处的归一化是指依照特征矩阵的行处理数据，其目的在于样本向量在点乘运算或其他核函数计算相似性时，拥有统一的标准，也就是说都转化为“单位向量”.归一化后样本各属性的平方和为1.
+
+python:   
+```{python, eval=FALSE, include=TRUE}
+from sklearn.preprocessing import Normalizer
+Normalizer().fit_transform(iris.data)
+```
+R:
+```{r}
+norm <- function(data){
+        norm = apply(data,1,function(x){x/sqrt(sum(x^2))})
+        norm = t(norm)
+        return(norm)
+}
+norm(iris.data)
+```
+
+**标准化与归一化的区别:**
+
+标准化是依照特征矩阵的列处理数据，其通过求z-score的方法，转换为标准正态分布。而归一化是将样本的特征值转换到同一量纲下把数据映射到[0,1]区间内，因此区间放缩法是归一化的一种。
+
+
+4.**对定量特征二值化** 
+
+以某个值为阈值，转换为0，1变量。
+
+python:       
+```{python, eval=FALSE, include=TRUE}
+from sklearn.preprocessing import Binarizer
+Binarizer(threshold=3).fit_transform(iris.data)
+```
+R:
+```{r}
+bina <- function(data,threshold){
+        ifelse(data > threshold,1,0)
+}
+bina(iris.data,threshold = 3)
+```
+
+5.**对定性特征哑编码**
+
+python:   
+```{python, eval=FALSE, include=TRUE}
+from sklearn.preprocessing import OneHotEncoder
+OneHotEncoder().fit_transform(iris.target.reshape((-1,1)))
+```
+R:
+```{r, message=FALSE}
+library(caret)
+var <- dummyVars(~ Species,data = iris)
+predict(var,iris["Species"])
+```
+
+6.**缺失值填补** 
+
+新增一个样本，缺失值为NAN，并对缺失值用均值进行填补。
+    
+python:       
+```{python, eval=FALSE, include=TRUE}
+from numpy import vstack, array, nan
+from sklearn.preprocessing import Imputer
+
+#参数strategy为缺失值填充方式，默认为mean（均值）
+Imputer().fit_transform(vstack((array([nan, nan, nan, nan]), iris.data)))
+```
+R:
+```{r}
+new = rep(NA,4)
+iris.data <- rbind(new,iris.data)
+iris.data[1,]<-lapply(iris.data,mean,na.rm=T)
+```
+
+7.**数据变换**
+
+常见的数据变换有基于多项式的、基于指数函数的、基于对数函数等.
+    
+python:   
+```{python, eval=FALSE, include=TRUE}
+#多项式转换
+from sklearn.preprocessing import PolynomialFeatures
+#参数degree为度，默认值为2
+PolynomialFeatures().fit_transform(iris.data)
+#对数函数转换
+from numpy import log1p
+from sklearn.preprocessing import FunctionTransformer
+FunctionTransformer(log1p).fit_transform(iris.data)
+```
+R:
+```{r, message=FALSE}
+#多项式转换
+library(dplyr)
+iris.data <- iris.data %>%
+        mutate(x3 = Sepal.Length*Sepal.Width)
+#对数函数转换
+iris.data <- iris.data %>%
+        mutate_each(funs(log1p))
+```
+
+### 4-4-3.特征选择
+
+1.**Filter法(过滤法) **
+    
+按照变量内部特征或者相关性对各个特征进行评分，设定阈值或者待选择阈值的个数选择特征.与特定的学习算法无关，因此具有较好的通用性，作为特征的预筛选器非常合适。缺点主要是由于算法的评价标准独立于特定的学习算法，所选的特征子集在分类准确率方面通常低于Wrapper方法。
+    
+1.1**方差选择法**
+
+计算各个特征的方差，然后根据阈值，选择方差大于阈值的特征.
+    
+python:       
+```{python, eval=FALSE, include=TRUE}
+from sklearn.feature_selection import VarianceThreshold
+#参数threshold为方差的阈值
+VarianceThreshold(threshold=3).fit_transform(iris.data)
+```
+R:
+```{r, message=FALSE}
+library(mlr)
+#创建task
+train.task <- makeClassifTask(data = iris,target = "Species")
+#查看变量选择可选方法
+listFilterMethods()
+#选择计算方差，进行特征选择
+var_imp <- generateFilterValuesData(train.task,method = "variance",nselect = 3)
+var_imp
+#对衡量特征指标进行绘图
+plotFilterValues(var_imp,feat.type.cols = TRUE,n.show = 3)
+```
+
+1.2.**相关系数法**
+
+计算各个特征对目标值的相关系数以及相关系数的P值.
+    
+python:       
+```{python, eval=FALSE, include=TRUE}
+from sklearn.feature_selection import SelectKBest
+from scipy.stats import pearsonr
+#选择K个最好的特征，返回选择特征后的数据
+#第一个参数为计算评估特征是否好的函数，该函数输入特征矩阵和目标向量，
+#输出二元组（评分，P值）的数组，数组第i项为第i个特征的评分和P值。在此定义为计算相关系数
+#参数k为选择的特征个数
+SelectKBest(lambda X, Y: array(map(lambda x:pearsonr(x, Y), X.T)).T, k=2).fit_transform(iris.data, iris.target)
+```
+R:
+```{r, message=FALSE}
+library(mlr)
+#创建task
+train.task <- makeRegrTask(data = iris.data,target = "Sepal.Width")
+#查看变量选择可选方法
+listFilterMethods()
+#选择pearson相关系数，进行特征选择
+#也可以选择秩相关系数(method = rank.correlation),注意此函数由于用到rJava包需要搭建JDK环境调用Java
+var_imp <- generateFilterValuesData(train.task,method = "linear.correlation")
+var_imp
+#对相关系数进行绘图
+library(corrplot)
+corrplot(cor(iris.data),order="hclust")
+```
+
+1.3.**计算卡方值**
+
+经典的卡方检验是检验定性自变量对定性因变量的相关性，考虑自变量等于i且因变量等于j的样本频数的观察值与期望的差距,这个统计量的含义简而言之就是自变量对因变量的相关性。
+
+python:       
+```{python, eval=FALSE, include=TRUE}    
+from sklearn.feature_selection import SelectKBest
+from sklearn.feature_selection import chi2
+
+#选择K个最好的特征，返回选择特征后的数据
+SelectKBest(chi2, k=2).fit_transform(iris.data, iris.target)
+```
+R:
+```{r, message=FALSE}
+library(mlr)
+#创建task
+train.task <- makeClassifTask(data = iris,target = "Species")
+#查看变量选择可选方法
+listFilterMethods()
+#选择计算卡方值，进行特征选择
+var_imp <- generateFilterValuesData(train.task,method = "chi.squared")
+var_imp
+#对衡量特征指标进行绘图
+plotFilterValues(var_imp,feat.type.cols = TRUE)
+```
+
+1.4.**互信息**
+    
+经典的互信息也是评价定性自变量对定性因变量的相关性的，可以看成是一个随机变量中包含的关于另一个随机变量的信息量.
+    
+python:       
+````{python, eval=FALSE, include=TRUE}
+from sklearn.feature_selection import SelectKBest
+from minepy import MINE
+ 
+#由于MINE的设计不是函数式的，定义mic方法将其为函数式的，
+#返回一个二元组，二元组的第2项设置成固定的P值0.5
+ def mic(x, y):
+     m = MINE()
+     m.compute_score(x, y)
+     return (m.mic(), 0.5)
+
+#选择K个最好的特征，返回特征选择后的数据
+SelectKBest(lambda X, Y: array(map(lambda x:mic(x, Y), X.T)).T, k=2).fit_transform(iris.data, iris.target)
+```
+R:
+```{r, message=FALSE}
+library(mlr)
+#创建task
+train.task <- makeClassifTask(data = iris,target = "Species")
+#查看变量选择可选方法
+listFilterMethods()
+#选择计算信息增益，进行特征选择
+var_imp <- generateFilterValuesData(train.task,method = "information.gain")
+var_imp
+#对衡量特征指标进行绘图
+plotFilterValues(var_imp,feat.type.cols = TRUE)
+```
+
+2.**Wrapper法（封装法）**
+
+    封装式特征选择是利用学习算法的性能来评价特征子集的优劣。因此，对于一个待评价的特征子集，Wrapper方法需要训练一个分类器，根据分类器的性能对该特征子集进行评价，学习算法包括决策树、神经网络、贝叶斯分类器、近邻法以及支持向量机等。Wrapper方法缺点主要是特征通用性不强，当改变学习算法时，需要针对该学习算法重新进行特征选择。
+    
+**递归特征消除法**
+
+    递归消除特征法使用一个模型来进行多轮训练，每轮训练后，消除若干权值系数的特征，再基于新的特征集进行下一轮训练。Logistic回归的R实现详见本微信公众号历史文章：Logistic回归详解（三）——变量选择部分。
+
+python:      
+```{python, eval=FALSE, include=TRUE}
+from sklearn.feature_selection import RFE
+from sklearn.linear_model import LogisticRegression
+
+#递归特征消除法，返回特征选择后的数据
+#参数estimator为基模型
+#参数n_features_to_select为选择的特征个数
+RFE(estimator=LogisticRegression(), n_features_to_select=2).fit_transform(iris.data, iris.target)
+```
+R:
+```{r, message=FALSE, warning=FALSE}
+#构建Logistic回归模型
+library(MASS)
+m <- glm(Species ~ ., data = iris, family = "binomial")
+#运用step函数进行变量选择
+selecting <- step(m,direction = "backward")
+```
+
+
+3.**Embedded（集成法）**
+
+    在集成法特征选择中，特征选择算法本身作为组成部分嵌入到学习算法里。最典型的即决策树算法。包括基于惩罚项的特征选择法和基于树模型的特征选择法。
+
+3.1.**基于惩罚项的特征选择法**
+
+python:   
+```{python, eval=FALSE, include=TRUE}
+from sklearn.feature_selection import SelectFromModel
+from sklearn.linear_model import LogisticRegression
+
+#带L1惩罚项的逻辑回归作为基模型的特征选择（lasso回归）
+SelectFromModel(LogisticRegression(penalty="l1", C=0.1)).fit_transform(iris.data, iris.target)
+```
+R:
+```{r, message=FALSE}
+#转换变量类型
+iris.data <- iris[,-length(iris)]
+iris.matrix <- as.matrix(iris.data)
+target <- as.numeric(iris.targer)
+#Lasso回归
+library(glmnet)
+#alpha = 1为Lasso回归，alpha=0为岭回归
+r2 <- glmnet(iris.matrix,target,family = "multinomial",alpha = 1)
+#通过10fold交叉验证获得最优lambda参数
+r2.cv <- cv.glmnet(iris.matrix,target,family = "multinomial",alpha = 1,nfolds = 10)
+plot(r2.cv)
+#根据获得的lambda.min值，拟合最优模型r2.min
+r2.min <- glmnet(iris.matrix,target,family = "multinomial", alpha = 1, lambda = r2.cv$lambda.min)
+r2.min_coef <- coef(r2.min)
+```
+
+3.2.**基于树模型的特征选择法**
+
+python:   
+```{python, eval=FALSE, include=TRUE}
+from sklearn.feature_selection import SelectFromModel
+from sklearn.ensemble import GradientBoostingClassifier
+#GBDT作为基模型的特征选择
+SelectFromModel(GradientBoostingClassifier()).fit_transform(iris.data, iris.target)
+```
+R:
+```{r, message=FALSE, warning=FALSE}
+library(mlr)
+train.task <- makeClassifTask(data = iris,target = "Species")
+#查看可选模型参数
+listLearners("classif","multiclass")[c("class","package")]
+
+#创建机器学习模型
+gbm_learner <- makeLearner("classif.gbm",predict.type = "response")
+#设定模型参数
+gbm_learner$par.vals <- list(laplace = 1)
+#训练和预测
+nB_models <- mlr::train(gbm_learner,train.task)
+nB_predict <- predict(nB_models,train.task)
+#模型评估
+nB_prediction <- nB_predict$data$response
+#混淆矩阵
+dCM <- confusionMatrix(iris$Species,nB_prediction)
+```
+
+4.**降维**
+
+    降维方法除了以上提到的基于L1惩罚项的模型以外，另外还有主成分分析法（PCA）和线性判别分析（LDA），线性判别分析本身也是一个分类模型。PCA和LDA有很多的相似点，其本质是要将原始的样本映射到维度更低的样本空间中，但是PCA和LDA的映射目标不一样：PCA是为了让映射后的样本具有最大的发散性；而LDA是为了让映射后的样本有最好的分类性能。所以说PCA是一种无监督的降维方法，而LDA是一种有监督的降维方法。
+    
+4.1.**主成分分析（PCA）**
+
+python:   
+```{python, eval=FALSE, include=TRUE}
+from sklearn.decomposition import PCA
+#主成分分析法，返回降维后的数据
+#参数n_components为主成分数目
+PCA(n_components=2).fit_transform(iris.data)
+```
+R:
+```{r}
+# 主成分分析
+iris.pc<-prcomp(iris.data)
+summary(iris.pc)
+# 主成分分析陡坡图
+plot(iris.pc,type="l",main="PCA陡坡图")
+```
+
+4.2**线性判别分析（LDA）**
+
+python:   
+```{python, eval=FALSE, include=TRUE}
+from sklearn.lda import LDA
+#线性判别分析法，返回降维后的数据
+#参数n_components为降维后的维数
+LDA(n_components=2).fit_transform(iris.data, iris.target)
+```
+
+R:
+```{r, message=FALSE}
+library(MASS)  
+#以公式格式进行线性判别 
+fit_lda = lda(Species~., data = iris)  
+names(fit_lda)  
+fit_lda$means
+```

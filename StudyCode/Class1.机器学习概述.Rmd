@@ -1,0 +1,87 @@
+---
+title: "Class1机器学习概述"
+author: "Phoebe Chang"
+date: '2016-12-26'
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# R学习开始
+
+#一、机器学习的思维模式
+  机器学习是问题发生的概率来解决问题的
+  
+##实例1、计算不规则图形面积
+  计算机方法（统计概率方法）：均匀投点到图形整体，点在不规则图上的频数*总面积<br>
+  数学方法：采用定积分求解
+
+##实例1-1、计算圆周率π
+```{r pai}
+#建立模型大小
+n<-10000
+#建立平均分布2维度（点坐标）模型矩阵
+A<-matrix(runif(n*2,min=0,max=1),nrow=n,ncol=2,byrow=T)
+#计算多少点落在1*1大小的正方形圆内（距离（0.5,0.5）的距离不大于0.5）
+b<-sqrt((A[,1]-0.5)^2+(A[,2]-0.5)^2)
+d<-subset(b,b<=0.5)
+pai<-4*length(d)/length(b)
+return(pai)
+```
+
+##实例1-2、计算y=x^2函数积分（用内置定积分函数）
+```{r integration}
+integrate(function(x){x^2},0,1)
+```
+
+##实例1-2、计算y=x^2函数积分（用数据模型模拟）
+```{r model}
+#模型大小
+n<-100000
+#建立平均分布2维度（点坐标）模型矩阵
+A<-matrix(runif(n*2,min=0,max=1),nrow=n,ncol=2,byrow=T)
+#计算出多少点落在面积范围内符合y<x^2的条件（在曲线的下面）
+b<-sapply(A[,1],function(x){x^2})
+d<-subset(b,b>A[,2])
+num<-length(d)/length(b)
+return(num)
+```
+
+##实例1-3、MonteCarlo模型
+```{r MonterCarlo}
+#创建两个均匀分布随机数
+u1<-runif(100,0,1)
+u2<-runif(100,0,1)
+#根据均匀分布创建标准正态分布
+n1<-(-2*log(u1))^0.5*cos(2*u2*pi)
+#用函数生成标准正态分布随机数
+n2<-rnorm(100)
+#利用n2对n1进行卡方检验
+chisq.test(n1,n2)
+```
+## 直方图检验
+```{r hist}
+hist(n1,breaks = 20)
+```
+
+#二、机器学习和统计学的关系
+  传统统计学：假设→数据检验→假设检验<br>
+  机器学习：数据→建模→验证模型<br>
+  机器学习是问题驱动的，统计学习是数据驱动的。<br>
+  统计学：演绎推理，从一般到特殊（个别）<br>
+  机器学习：归纳推理，从特殊（个别）到一般<br>
+
+#三、机器学习概述
+  机器学习是给定一些训练样本（x,y）,让计算机自动寻找一个决策函数f(x)来建立x与y的关系。<br>
+  三要素：模型、策略、算法<br>
+  方差：模型稳定性和精确度Σ(xi-x)^2<br>
+  偏差：模型的复杂度和准确度<br>
+  误差由偏差的平方、方差和随机噪声三部分构成，一般情况下偏差可以用补偿解决，方差需要调整模型<br>
+  高偏差：欠拟合（数据不够复杂捕捉不到基本关系）
+  高方差：过拟合（只对特定数据有效，换了数据就无效）
+  
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

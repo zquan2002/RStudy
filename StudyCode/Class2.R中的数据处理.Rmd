@@ -1,0 +1,415 @@
+---
+title: "Class2.R中的数据处理"
+author: "Phoebe Chang"
+date: "2016年12月28日"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 数据的存取与编辑
+
+## 读入数据
+用**read.table()**实现一般数据读取<br>
+用**read.csv()**实现csv数据的读取<br>
+用**read.spss()**实现spss数据的读取<br>
+用**read.ssd()**实现SAS数据的读取<br>
+用**read.dbf()**实现dbf数据的读取
+
+## 修改数据
+```{r, eval=FALSE, include=TRUE}
+a <- mtcars
+#实用edit()函数通过数据编辑器实现修改，并将修改后的结果赋值给b，a无变化
+b <- edit(a)
+#使用fix()函数通过数据编辑器直接修改a
+fix(a)
+```
+
+## 保存数据
+```{r, eval=FALSE, include=TRUE}
+save(a,file = "文件名及位置路径")
+#加载保存的数据
+load(file = "文件名及位置路径")
+```
+
+## 导出数据
+```{r, eval=FALSE, include=TRUE}
+write.table(x,file = "文件名及位置路径")
+#导出成csv文件到R工作路径
+write.csv(a,file = "123.csv")
+```
+
+# 从mySQL等数据库中导入数据
+命令行启动mysql：mysql -p -u root<br>
+MySQL中的相关操作(全部以;结尾)：<br>
+创建数据库：create database r_language_study;<br>
+查看数据库：show databases;
+创建新用户：grant all on data.* to 'zquan'@'localhost' identified by '12345';
+```{r, eval=FALSE, include=TRUE}
+#加载mysql包
+library(DBI)
+library(RMySQL)
+#创建数据引擎
+drv <- dbDriver("MySQL")
+#建立数据库连接
+con <- dbConnect(drv, username = "zquan",password = "12345",dbname = "r_language_study")
+#查看连接信息
+dbGetInfo(con)
+#将数据框写入数据库
+dbWriteTable(con, "mtcars", mtcars[1:10, ])
+#向database写入一个新表
+dbWriteTable(con,"XYZMean",mtcars)
+#查看数据库中的表
+dbListTables(con,dbname = "r_language_study")
+#[1] "mtcars"  "xyzmean"
+#执行SQL语句
+dbGetQuery(con,"select count(*) from xyzmean where disp>200")
+#  count(*)
+#1       16
+#将SQL执行结果赋值给数据框
+sub_order <- dbGetQuery(con, "select mpg,cyl,disp,hp,drat from xyzmean order by mpg")
+head(sub_order)
+#   mpg cyl disp  hp drat
+#1 10.4   8  460 215 3.00
+#2 10.4   8  472 205 2.93
+#3 13.3   8  350 245 3.73
+#4 14.3   8  360 245 3.21
+#5 14.7   8  440 230 3.23
+#6 15.0   8  301 335 3.54
+#关闭数据连接
+dbDisconnect(con)
+#释放系统资源，可以卸载数据库驱动
+dbUnloadDriver(drv)
+```
+
+# 网络爬虫
+1.RCurl包，模拟浏览器访问数据<br>
+2.XML包，通过HTML树结构筛选提取信息<br>
+3.rvest包，提取数据
+
+## RCurl包访问网络页面
+step1.伪装表头，模仿浏览行为
+```{r, eval=FALSE, include=TRUE}
+#加载包
+library(bitops)
+library(RCurl)
+library(XML)
+#构造请求报头，固定即可
+cust_header =c("User-Agent"="Mozilla/5.0 (Windows NT 6.1; WOW64; rv:26.0) Gecko/20100101 Firefox/26.0",
+               "Accept"="text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8","Accept-Language"="en-us",
+               "Connection"="keep-alive")
+```
+
+Step2.模拟访问,把指定的网页临时下载下来
+```{r, eval=FALSE, include=TRUE}
+#打开拉手网网址
+start_url = "http://zhuhai.lashou.com/cate/meishi"
+#读取PageSouce，注意encoding前面有个.
+pagesource <- getURL(start_url,httpheader=cust_header,.encoding="utf-8")
+```
+
+Step3.整理HTML结构（利用XML树结构筛选提取信息）
+使用XML包中的htmlParse()函数解析刚才得到的Pagesource变量（其中储存了HTML所爬取网页的代码）生成标准的HTML树形结构并赋值给pagetree变量。之后便可在XML中对该变量进行各种操作了。
+```{r, eval=FALSE, include=TRUE}
+#注意编码encoding与网站一致useInternalNodes是否保持网络树形结构，trim是否去掉空白
+pagetree <- htmlParse(pagesource,encoding="UTF-8", error=function(...){}, useInternalNodes = TRUE,trim=TRUE)
+```
+
+Step4.根据页面HTML结构定位数据节点
+ ul/li/div/a/text() <br>
+此外，我们也可以用利用两个<div>具有相同的class属性值直接从<div>开始定位，也即<br>
+div[@class='first']/a/text()
+这两个写法在XML包中都是适用的。
+```{r, eval=FALSE, include=TRUE}
+node<-getNodeSet(pagetree, '//div[contains(@class,"goods")]//a[@class="goods-name"]//text()')
+#提取美食名称
+goods_name<-sapply(node,xmlValue)
+```
+
+Step5.页数解析
+```{r, eval=FALSE, include=TRUE}
+#获取总页数
+total_page <- sapply(getNodeSet(pagetree, '//*[@id="main"]/div/div[2]/div[2]/a[7]'), xmlValue)
+#创建函数获取总页数
+parseTotalPage <- function(pagesource){
+        doc <- htmlParse(pagesource)  
+        as.numeric(sapply(getNodeSet(doc, '//div[@class="page"]/a[last()-1]/text()'), xmlValue))
+}
+```
+
+Step6.构建提取函数
+```{r, eval=FALSE, include=TRUE}
+#解析页面内容，获取门店名称、描述、优惠价，门店价
+parseContent <-  function(pagesource){
+        doc <- htmlParse(pagesource)
+        goods_name <- sapply(getNodeSet(doc, '//div[contains(@class,"goods")]//a[@class="goods-name"]//text()'), xmlValue)
+        goods_text <- sapply(getNodeSet(doc, '//div[contains(@class,"goods")]//a[@class="goods-text"]//text()'), xmlValue)
+        price <- sapply(getNodeSet(doc, '//div[contains(@class,"goods")]//span[@class="price"]/text()'), xmlValue)
+        org_price <- sapply(getNodeSet(doc, '//div[contains(@class,"goods")]//span[@class="money"]/del/text()'), xmlValue)
+        result <- data.frame(goods_name, goods_text, price, org_price)
+}
+```
+
+Step7.循环获取每一页的数据
+```{r, eval=FALSE, include=TRUE}
+#获取总页数和第一页内容
+total_page <- parseTotalPage(pagesource)
+pageresults <- parseContent(pagesource)
+#生成2-n页url
+page = 1:(total_page -1)
+#创建空向量url_list
+url_list = ""
+#为向量赋值
+url_list[page] = paste0("http://zhuhai.lashou.com/cate/meishi/page",page +1)
+#循环读取url，并进行下载解析
+for (url in url_list){
+        pagesource <- getURL(url,httpheader=cust_header,.encoding="utf-8")
+        pageresult <- parseContent(pagesource)
+        #用rbind函数拼接结果
+        pageresults <- rbind(pageresults,pageresult)
+}
+
+#输出结果导出到csv文件
+write.csv(pageresults,"lashouTest.csv",row.names=FALSE)
+```
+
+etc.其它注意点：<br>
+a.爬出乱码<br>
+查看encoding，强制转换encoding
+```{r, eval=FALSE, include=TRUE}
+library(stringi)
+stri_enc_detect(pageresult$goods_name[1])
+#讲UTF_8转换为gb2312
+iconv(pageresult$goods_name[1],"UTF-8","CP936")
+```
+b.去掉冗余信息，字符串清理
+```{r, eval=FALSE, include=TRUE}
+#匹配需要去掉的字符，包括回车、空格、制表符、换页等，用|隔开，等价于正则[\f\n\r\t\v]
+to_remove <- paste(c("\n","^\\s+|\\s+$"),collapse = "|")
+faddress <- "     哈哈哈 不造 说啥呢"
+#用gsub()函数去掉faddress中的冗余字符
+gsub(to_remove,"",faddress)
+```
+
+## XML包节点定位方法
+XML包可以很方便的获取网页XML结构下的数据
+```{r}
+#调用包
+library(XML)
+#打开网页
+url <- "http://www.w3school.com.cn/example/xmle/books.xml"
+#获取网页中的XML，useinternal是否使用网络结构
+doc <- xmlTreeParse(url,useInternal = TRUE)
+#获取XML中的结构
+top <- xmlRoot(doc)
+top
+#获取XML中所有title节点
+nodes <- getNodeSet(top,"/bookstore/book/title");nodes
+#获取XML中第1个book的节点
+nodes1 <- getNodeSet(top,"/bookstore/book[1]/title");nodes1
+#获取所有price节点中的文本
+price <- getNodeSet(top,"/bookstore/book/price/text()");price
+#获取所有价格高于35的title文本
+title1 <- getNodeSet(top,"/bookstore/book[price>35]/title/text()");title1
+# 选取属于 bookstore 子元素的最后一个 book 元素。 
+getNodeSet(top,'/bookstore/book[last()]')  
+# 选取最前面的两个属于 bookstore 元素的子元素的 book 元素
+getNodeSet(top,'/bookstore/book[position()<3]')  
+# 选取所有拥有名为 lang 的属性的 title 元素。 
+getNodeSet(top,'//title[@lang]')  
+#选取所有 title 元素，且这些元素拥有值为 eng 的 lang 属性
+getNodeSet(top,"//title[@lang='en']") 
+# 选取 bookstore 元素的所有 book 元素，且其中的 price 元素的值须大于 35.00。 
+getNodeSet(top,"/bookstore/book[price>35.00]") 
+# 选取 book 元素的所有 title 和 price 元素 
+getNodeSet(top,"//book/title | //book/price") 
+# 选取文档中的所有 title 和 price 元素 
+getNodeSet(top,"//title | //price") 
+# 选取 bookstore 元素的所有子元素 
+getNodeSet(top,"/bookstore/*") 
+# 选取所有带有属性的 title 元素 
+getNodeSet(top,"//title[@*]") 
+# 选择所有属性lang的值，并提取出来形成列表
+unlist(getNodeSet(top,"//title/@lang"),use.names = FALSE)
+# title结点下的所有文本 
+getNodeSet(top,"//title/text()") 
+```
+
+##使用rvest包爬取数据
+请配合SelectorGadget插件使用，可快速定位需要爬取数据的位置。<br>
+Google不能用了哦，请在网上找crx包离线下载
+```{r, message=FALSE, warning=FALSE}
+#加载包
+library(xml2)
+library(rvest)
+#抓取豆瓣页面
+movie <- read_html("https://movie.douban.com/top250", encoding = "utf-8")
+#用SelectorGadget插件定位数据位置
+positions<-movie %>% 
+  html_nodes(".title:nth-child(1)") %>%
+  html_text()
+#转换编码类型
+iconv(positions,"UTF-8","gb2312")
+```
+
+# 非结构化数据的读取
+非结构化数据行和列都是不标准的（例如常见的Jason结构）
+```{r, echo=FALSE}
+#加载rlist包
+library(rlist)
+#建立list类型数据
+devs <- list(
+        p1 = list(name = "ken",age = 24,
+                  interest =c("reading","music","movies"),
+                  lang = list(r = 2,java = 4, cpp =3)),
+        p2 = list(name = "James", age = 25,
+                  interest =c("sport","music"),
+                  lang = list(r = 3,java = 2, cpp =5)),
+        p3 = list(name = "Penny", age = 24,
+                  interest =c("movies","reading"),
+                  lang = list(r = 1, cpp =5, python = 2))
+)
+str(devs)
+```
+
+## 通过rlist包可以对非结构化数据进行操作
+
+1.映射（mapping）<br>
+list.map()函数提供了list中元素的映射功能
+```{r}
+#将每个元素映射到年龄(age)
+list.map(devs,age)
+#将每个元素映射到使用的编程语言的平均年数
+list.map(devs,mean(as.numeric((lang))))
+#将每个元素映射到使用的编程语言名称
+list.map(devs,names(lang))
+```
+
+2.筛选操作（filtering）<br>
+list.filter()函数提供筛选功能
+```{r}
+#筛选出年龄不低于25岁的个体：
+str(list.filter(devs, age >= 25))
+#筛选出使用R语言的个体，in是属于的意思
+str(list.filter(devs, "r" %in% names(lang)))
+#筛选出使用Python年限不低于3年的个体
+str(list.filter(devs, lang$python >= 3))
+```
+
+3.分组(grouping)<br>
+list.group()、list.class()函数提供分组功能
+```{r}
+#按年龄进行分组(list.group()互斥分组，相互不叠加)
+str(list.group(devs, age))
+#按照兴趣做分组（list.class()非互斥分组，相互有重叠）
+str(list.class(devs, interest))
+```
+
+4.排序(sorting)<br>
+list.sort()函数提供排序功能
+```{r}
+#按年龄升序进行排列
+str(list.sort(devs,age))
+#按兴趣数量降序排列，然后按R语言使用年数降序排列(参数加())
+str(list.sort(devs, (length(interest)), (lang$r)))
+```
+
+5.更新(updating)<br>
+list.update()函数提供更新功能
+```{r}
+#去除interest和lang两个字段，加入nlang表示掌握语言数目，
+#以及expert使用时间最长的语言名称：
+str(list.update(devs,interest = NULL,lang=NULL,nlang=length(lang),
+                expert={
+                        longest<- sort(unlist(lang))[1]
+                        names(longest)
+                }))
+```
+
+6.Lambda表达式<br>
+rlist中所有支持表达式计算的函数都支持 Lambda 表达式，允许用户访问列表元素的元数据（metadata），即元素本身、元素索引编号（index）、元素名称（name）
+```{r}
+#使用.来表示元素本身
+x <- list(a=c(1,2,3),b=c(3,4,5))
+list.map(x,sum(.))
+#通过形如 x -> f(x) 或者 x ~ f(x) 的 Lambda 表达式自定义符号
+list.map(x,x~sum(x))
+```
+
+## 实现JSON数据的读取与转换
+
+1.从R对象到json<br>
+rjson包中的toJSON()函数和RJSONIO包中的RJSONIO::toJSON函数实现R到JSON结构的转化，将R对象序列化为JSON串，二者实质相同展示形式不同
+```{r, message=FALSE, warning=FALSE}
+#调用库
+library(jsonlite)
+library(rjson)
+library(RJSONIO)
+#利用rjson包中的toJSON()函数把R对象序列化为JSON串
+json_dev <- toJSON(devs)
+print(json_dev)
+#用cat格式化为打印格式去掉“\”
+cat(json_dev)
+#利用RJSONIO包中的toJSON()函数把R对象序列化为JSON串，不同包内的同名函数用包名+::区分
+json_dev2 <- RJSONIO::toJSON(devs)
+print(json_dev2)
+#用cat格式化为打印格式去掉“\”，可以看出这个输出是非常规则的格式化的JSON格式
+cat(json_dev2)
+```
+
+2.R结果输出为json文件<br>
+用writlines()函数实现R结果输出为.json文件
+```{r, echo=TRUE}
+writeLines(json_dev, "jsonexample.json")
+```
+
+用sink()函数实现
+```{r}
+sink("example2.json")
+cat(json_dev)
+sink()
+```
+
+3.从json文件读取数据到R
+```{r, echo=TRUE, warning=FALSE}
+#json文件读取
+json_r <- readLines("jsonexample.json")
+json_r
+#通过fromJSON()函数将读取的内容转换为list结构
+#json_list <- rjson::fromJSON(json_r)
+#json_list
+```
+
+4.R数据框对象操作
+```{r}
+#创建数据框
+df <- data.frame(
+        id = 1:10,
+        li = letters[1:10],
+        da = LETTERS[1:10],
+        num = sample(10)
+)
+cat(toJSON(df))
+#结果不是想要的json结构，利用plyr包转换为想要的
+library(plyr)
+#将数据框转为list
+a <- alply(df,1,identity)
+a
+#去掉名字
+a <- unname(a)
+a
+#转为json格式输出
+cat(toJSON(a))
+```
+
+5.查看看非结构化数据（非结构化数据展示）
+```{r}
+#加载包
+library(jsonlite)
+#从github下载安装jsonview包devtools::install_github("hrbrmstr/jsonview")
+library(jsonview)
+#利用json_tree_view结构化展示json数据
+jsonview::json_tree_view(fromJSON("jsonexample.json"))
+```
